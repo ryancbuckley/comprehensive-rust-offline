@@ -115,6 +115,14 @@ class Stdio {
   constructor(which) { this.which = which; }
 }
 
+function newMemory(limits) {
+  return new WebAssembly.Memory({
+    initial: limits.initial,
+    maximum: limits.maximum ?? 65536,
+    shared: true,
+  });
+}
+
 export class Process {
   constructor(kernel, pid, opts) {
     this.kernel = kernel;
@@ -130,6 +138,12 @@ export class Process {
       this.fds.set(this.fds.size, new OpenDir(kernel.fs.mkdirp(dir), dir, dir));
     }
     this.threads = new Set();
+    /** Processes it started with playground.spawn, still running. */
+    this.children = new Set();
+    /** Threads prepared (instantiated) for it, waiting to be started. */
+    this.spares = [];
+    /** How many threads it has started, the main thread included. */
+    this.started = 0;
     this.exitCode = null;
     this.exited = new Promise((resolve) => (this.resolveExit = resolve));
   }
@@ -146,6 +160,9 @@ export class Process {
   }
 }
 
+/** At most this many threads are prepared ahead for a process. */
+const MAX_SPARE_THREADS = 8;
+
 /** Arguments arrive as BigInts; pointers and sizes are unsigned 32-bit. */
 const u32 = (a) => Number(BigInt.asUintN(32, a));
 
@@ -156,8 +173,10 @@ export class Kernel {
    * @param {() => {postMessage(m: any): void, onMessage(f: (m: any) => void): void, terminate(): void}} opts.createWorker
    * @param {Record<string, {module: WebAssembly.Module, bytes: Uint8Array}>} [opts.programs]
    *   Programs `playground.spawn` can run, by `argv[0]`.
+   * @param {number} [opts.pool] How many idle workers to keep ready, so that
+   *   starting a thread does not wait for one to be created.
    */
-  constructor({ fs = new MemFS(), createWorker, programs = {}, trace = null }) {
+  constructor({ fs = new MemFS(), createWorker, programs = {}, trace = null, pool = 0 }) {
     this.fs = fs;
     /** Called with a line of text for each system call and thread event. */
     this.trace = trace;
@@ -167,7 +186,76 @@ export class Kernel {
     this.threads = new Map();
     this.nextTid = 1;
     this.nextPid = 1;
+    this.poolSize = pool;
+    this.idleWorkers = [];
+    /** For each module: the most threads a process of it has started. */
+    this.threadsUsed = new WeakMap();
+    /** Programs to keep a process prepared for (`keepWarm`), by module. */
+    this.keptWarm = new Map();
+    /** The prepared process for each of them: { memory, threads }. */
+    this.warm = new Map();
+    this.refillPool();
     this.loop();
+  }
+
+  // ---- Starting threads ahead of time ----------------------------------------
+  //
+  // Starting a thread means creating a worker (a few ms) and instantiating
+  // the module in it (a few more for rustc). Both can happen before the
+  // thread is needed: idle workers wait in a pool, each process gets its
+  // threads prepared (instantiated, waiting to start) as soon as it starts,
+  // as many as processes of its module have used before, and `keepWarm`
+  // keeps a whole process prepared for the next run of a program.
+
+  /** An idle worker from the pool, or a new one. */
+  takeWorker() {
+    const w = this.idleWorkers.pop() ?? this.createWorker();
+    this.refillPool();
+    return w;
+  }
+
+  refillPool() {
+    if (this.refilling || this.idleWorkers.length >= this.poolSize) return;
+    this.refilling = true;
+    setTimeout(() => {
+      this.refilling = false;
+      while (this.idleWorkers.length < this.poolSize) this.idleWorkers.push(this.createWorker());
+    }, 0);
+  }
+
+  /** A thread of `module` instantiated on `memory`, waiting for `startThread`. */
+  prepareThread(module, memory) {
+    const buffer = new SharedArrayBuffer(CHANNEL_BYTES);
+    const t = {
+      tid: null, proc: null,
+      ctl: new Int32Array(buffer, 0, 4),
+      args: new BigInt64Array(buffer, 16, MAX_ARGS),
+      worker: this.takeWorker(),
+    };
+    t.worker.onMessage((m) => this.onThreadMessage(t, m));
+    t.worker.postMessage({
+      type: "prepare", module, memory, channel: buffer,
+      doorbell: this.doorbell.buffer, syscalls: SYSCALLS,
+    });
+    return t;
+  }
+
+  prepareThreads(module, memory, n) {
+    return Array.from({ length: Math.min(n, MAX_SPARE_THREADS) }, () => this.prepareThread(module, memory));
+  }
+
+  /** Keep a process of `program` prepared, so that spawning it starts at once. */
+  keepWarm(program) {
+    this.keptWarm.set(program.module, program);
+    this.warmUp(program.module);
+  }
+
+  warmUp(module) {
+    const program = this.keptWarm.get(module);
+    if (!program || this.warm.has(module)) return;
+    const memory = newMemory(program.limits ?? importedMemory(program.bytes));
+    const threads = this.prepareThreads(module, memory, this.threadsUsed.get(module) ?? 1);
+    this.warm.set(module, { memory, threads });
   }
 
   async loop() {
@@ -193,33 +281,30 @@ export class Kernel {
     }
     const proc = new Process(this, this.nextPid++, opts);
     proc.module = program.module;
-    proc.memory = new WebAssembly.Memory({
-      initial: limits.initial,
-      maximum: limits.maximum ?? 65536,
-      shared: true,
-    });
-    this.startThread(proc, null);
+    const warm = this.warm.get(program.module);
+    if (warm) {
+      this.warm.delete(program.module);
+      proc.memory = warm.memory;
+      proc.spares = warm.threads;
+      this.startThread(proc, null);
+    } else {
+      proc.memory = newMemory(limits);
+      this.startThread(proc, null);
+      proc.spares = this.prepareThreads(proc.module, proc.memory, (this.threadsUsed.get(proc.module) ?? 1) - 1);
+    }
     return proc;
   }
 
   startThread(proc, startArg) {
-    const tid = this.nextTid++;
-    const buffer = new SharedArrayBuffer(CHANNEL_BYTES);
-    const t = {
-      tid, proc,
-      ctl: new Int32Array(buffer, 0, 4),
-      args: new BigInt64Array(buffer, 16, MAX_ARGS),
-      worker: this.createWorker(),
-    };
-    this.threads.set(tid, t);
+    const t = proc.spares.shift() ?? this.prepareThread(proc.module, proc.memory);
+    t.tid = this.nextTid++;
+    t.proc = proc;
+    this.threads.set(t.tid, t);
     proc.threads.add(t);
-    this.trace?.(`[${proc.pid}:${tid}] start${startArg === null ? " main" : ` thread arg=${startArg}`}`);
-    t.worker.onMessage((m) => this.onThreadMessage(t, m));
-    t.worker.postMessage({
-      module: proc.module, memory: proc.memory, channel: buffer,
-      doorbell: this.doorbell.buffer, tid, startArg, syscalls: SYSCALLS,
-    });
-    return tid;
+    proc.started++;
+    this.trace?.(`[${proc.pid}:${t.tid}] start${startArg === null ? " main" : ` thread arg=${startArg}`}`);
+    t.worker.postMessage({ type: "start", tid: t.tid, startArg });
+    return t.tid;
   }
 
   onThreadMessage(t, m) {
@@ -249,11 +334,18 @@ export class Kernel {
   exit(proc, code) {
     if (proc.exitCode !== null) return;
     proc.exitCode = code;
+    // A killed compiler takes its linker with it.
+    for (const child of proc.children) this.exit(child, code);
     for (const t of proc.threads) {
       this.threads.delete(t.tid);
       t.worker.terminate();
     }
     proc.threads.clear();
+    for (const t of proc.spares) t.worker.terminate();
+    proc.spares = [];
+    this.threadsUsed.set(proc.module, Math.max(this.threadsUsed.get(proc.module) ?? 0, proc.started));
+    // The next process of a kept-warm program, prepared while nothing runs.
+    if (this.keptWarm.has(proc.module)) setTimeout(() => this.warmUp(proc.module), 0);
     proc.resolveExit(code);
   }
 
@@ -323,7 +415,9 @@ export class Kernel {
     return E.SUCCESS;
   }
   sys_sched_yield() { return E.SUCCESS; }
-  sys_proc_exit(p, a) { this.exit(p, u32(a[0])); return undefined; }
+  // Exit statuses are 8 bits, as on Unix: exit(-1) is 255. (It also keeps
+  // them apart from playground_spawn's -1, "no such program".)
+  sys_proc_exit(p, a) { this.exit(p, u32(a[0]) & 0xff); return undefined; }
   sys_proc_raise() { return E.NOSYS; }
 
   sys_poll_oneoff(p, a) {
@@ -645,6 +739,10 @@ export class Kernel {
       stdout: p.onStdout,
       stderr: p.onStderr,
     });
-    return child.exited;
+    p.children.add(child);
+    return child.exited.then((code) => {
+      p.children.delete(child);
+      return code;
+    });
   }
 }
