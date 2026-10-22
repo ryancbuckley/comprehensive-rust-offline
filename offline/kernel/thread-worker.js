@@ -1,26 +1,36 @@
 // Runs one wasm thread for the kernel (kernel.js). Works as a browser worker
 // and as a Node worker thread.
 //
-// The first message gives the module, its shared memory, this thread's
-// channel and the kernel's doorbell. With no `startArg`, this is the main
-// thread and runs `_start`; otherwise it runs `wasi_thread_start`.
+// Two messages, so that the slow part can happen before the thread is needed:
+//   { type: "prepare", module, memory, channel, doorbell, syscalls }
+//       Instantiate the module on the process's shared memory, with this
+//       thread's system call channel and the kernel's doorbell.
+//   { type: "start", tid, startArg }
+//       Run: with no `startArg` this is the main thread and runs `_start`;
+//       otherwise it runs `wasi_thread_start`.
 
 const IDLE = 0, REQUEST = 1, DONE = 2;
 const MAX_ARGS = 12;
 
-let post, onFirstMessage;
+let post, onMessage;
 if (typeof process !== "undefined" && process.versions?.node) {
   const { parentPort } = await import("node:worker_threads");
   post = (m) => parentPort.postMessage(m);
-  onFirstMessage = (f) => parentPort.once("message", f);
+  onMessage = (f) => parentPort.on("message", f);
 } else {
   post = (m) => self.postMessage(m);
-  onFirstMessage = (f) => { self.onmessage = (e) => { self.onmessage = null; f(e.data); }; };
+  onMessage = (f) => { self.onmessage = (e) => f(e.data); };
 }
 
-onFirstMessage(run);
+let instance = null;
+let prepareError = null;
 
-function run({ module, memory, channel, doorbell, tid, startArg, syscalls }) {
+onMessage((m) => {
+  if (m.type === "prepare") prepare(m);
+  else if (m.type === "start") start(m);
+});
+
+function prepare({ module, memory, channel, doorbell, syscalls }) {
   const ctl = new Int32Array(channel, 0, 4);
   const args = new BigInt64Array(channel, 16, MAX_ARGS);
   const bell = new Int32Array(doorbell);
@@ -50,11 +60,17 @@ function run({ module, memory, channel, doorbell, tid, startArg, syscalls }) {
     playground: { spawn: wasi.playground_spawn },
   };
 
-  let instance;
   try {
     instance = new WebAssembly.Instance(module, imports);
   } catch (e) {
-    post({ type: "trap", message: `instantiation failed: ${e.message}` });
+    // Reported when the thread is started.
+    prepareError = e;
+  }
+}
+
+function start({ tid, startArg }) {
+  if (prepareError) {
+    post({ type: "trap", message: `instantiation failed: ${prepareError.message}` });
     return;
   }
   try {

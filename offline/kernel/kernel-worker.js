@@ -7,6 +7,8 @@
 //       (`--test`) instead of a binary. `color` (default true) asks rustc
 //       for colored diagnostics. `env` is the program's environment.
 //       `timeoutMs` kills the program if it runs longer.
+//   { type: "cancel", id }
+//       Stop run `id`: kill its compiler or program, whichever is running.
 // Messages to the page:
 //   { type: "status", text }           what is happening (loading, compiling…)
 //   { type: "ready", crates }          the toolchain is loaded; `crates` are the
@@ -97,6 +99,9 @@ let crateNames = [];
 let readyResolve;
 const ready = new Promise((r) => (readyResolve = r));
 const decoders = new Map();
+// The process each run is waiting for, and the runs to stop.
+const running = new Map();
+const cancelled = new Set();
 
 function textOf(id, stream, bytes) {
   const key = `${id}:${stream}`;
@@ -116,7 +121,11 @@ async function init() {
         .then((res) => (res.ok ? gunzip(res) : null))
         .catch(() => null),
     ]);
-    kernel = new Kernel({ createWorker: createBrowserWorker, programs: { "wasm-ld": wild } });
+    // Idle workers and prepared compiler and linker processes: each compile
+    // starts several threads, and starting them is a good part of its time.
+    kernel = new Kernel({ createWorker: createBrowserWorker, programs: { "wasm-ld": wild }, pool: 4 });
+    kernel.keepWarm(rustcProgram);
+    kernel.keepWarm(wild);
     unpack(kernel.fs, bundle, SYSROOT);
     if (crates) {
       unpack(kernel.fs, crates, CRATES);
@@ -142,6 +151,11 @@ async function init() {
 
 async function run({ id, source, opt, edition, tests, color, env, timeoutMs }) {
   await ready;
+  // Every run ends with a done message, a cancelled one too.
+  if (cancelled.delete(id)) {
+    postMessage({ type: "done", id, stage: "compile", code: 137, ms: 0 });
+    return;
+  }
   const fs = kernel.fs;
   const dir = `/work/${id}`;
   fs.mkdirp(dir);
@@ -167,10 +181,14 @@ async function run({ id, source, opt, edition, tests, color, env, timeoutMs }) {
     stdout: out("compiler"),
     stderr: out("compiler"),
   });
+  running.set(id, compile);
   const code = await compile.exited;
   postMessage({ type: "done", id, stage: "compile", code, ms: performance.now() - t0 });
   const wasm = fs.readFile(`${dir}/main.wasm`);
-  if (code !== 0 || !wasm) {
+  if (code !== 0 || !wasm || cancelled.has(id)) {
+    if (code === 0 && cancelled.has(id)) postMessage({ type: "done", id, stage: "run", code: 137, ms: 0 });
+    running.delete(id);
+    cancelled.delete(id);
     fs.remove(dir);
     status("Ready.");
     return;
@@ -180,7 +198,14 @@ async function run({ id, source, opt, edition, tests, color, env, timeoutMs }) {
   t0 = performance.now();
   const bytes = wasm.slice();
   fs.remove(dir);
-  const proc = kernel.spawn({ bytes, module: await WebAssembly.compile(bytes) }, {
+  const module = await WebAssembly.compile(bytes);
+  if (cancelled.delete(id)) {
+    running.delete(id);
+    postMessage({ type: "done", id, stage: "run", code: 137, ms: 0 });
+    status("Ready.");
+    return;
+  }
+  const proc = kernel.spawn({ bytes, module }, {
     // Tests run in this process: with panic=abort, libtest would otherwise
     // run each test in a subprocess, and WASI cannot start one.
     args: tests ? ["main", "-Zunstable-options", "--force-run-in-process"] : ["main"],
@@ -188,12 +213,15 @@ async function run({ id, source, opt, edition, tests, color, env, timeoutMs }) {
     stdout: out("stdout"),
     stderr: out("stderr"),
   });
+  running.set(id, proc);
   let timedOut = false;
   const timer = timeoutMs
     ? setTimeout(() => { timedOut = true; kernel.kill(proc); }, timeoutMs)
     : null;
   const runCode = await proc.exited;
   clearTimeout(timer);
+  running.delete(id);
+  cancelled.delete(id);
   postMessage({ type: "done", id, stage: "run", code: runCode, ms: performance.now() - t0, timedOut });
   status("Ready.");
 }
@@ -202,6 +230,10 @@ onmessage = (e) => {
   const m = e.data;
   if (m.type === "run") {
     run(m).catch((err) => postMessage({ type: "error", id: m.id, text: String(err.stack ?? err) }));
+  } else if (m.type === "cancel") {
+    cancelled.add(m.id);
+    const proc = running.get(m.id);
+    if (proc) kernel.kill(proc);
   }
 };
 
