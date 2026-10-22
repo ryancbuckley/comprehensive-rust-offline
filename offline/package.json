@@ -1,0 +1,8 @@
+{
+  "name": "comprehensive-rust-offline",
+  "private": true,
+  "description": "Comprehensive Rust with its code examples compiled and run in the browser",
+  "devDependencies": {
+    "msw": "^2.15.0"
+  }
+}

@@ -180,6 +180,8 @@ function mdbook_something_else_has_focus(e) {
 
         const playgroundModified = isPlaygroundModified(code_block);
         const startTime = window.performance.now();
+        // The offline playground (offline-playground.js) may first have to
+        // load the compiler, so allow more time than the server needs.
         fetch_with_timeout("https://play.rust-lang.org/execute", {
             headers: {
                 'Content-Type': "application/json",
@@ -187,7 +189,7 @@ function mdbook_something_else_has_focus(e) {
             method: 'POST',
             mode: 'cors',
             body: JSON.stringify(params)
-        })
+        }, 120000)
         .then(response => response.json())
         .then(response => {
             const endTime = window.performance.now();

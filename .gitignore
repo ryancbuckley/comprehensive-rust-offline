@@ -23,6 +23,7 @@ count.dat
 node_modules/
 package.json
 !tests/package.json
+!offline/package.json
 pnpm-lock.yaml
 
 # Crowdin Config (Contains API Keys)
