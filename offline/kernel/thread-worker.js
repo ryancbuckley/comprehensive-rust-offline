@@ -31,7 +31,9 @@ function run({ module, memory, channel, doorbell, tid, startArg, syscalls }) {
     Atomics.store(ctl, 0, REQUEST);
     Atomics.add(bell, 0, 1);
     Atomics.notify(bell, 0);
-    while (Atomics.load(ctl, 0) !== DONE) Atomics.wait(ctl, 0, Atomics.load(ctl, 0));
+    // Wait with the state just seen: reading it again for Atomics.wait could
+    // see DONE, and then wait for DONE to change, forever.
+    for (let s; (s = Atomics.load(ctl, 0)) !== DONE;) Atomics.wait(ctl, 0, s);
     const r = ctl[2];
     Atomics.store(ctl, 0, IDLE);
     return r;
