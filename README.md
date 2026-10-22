@@ -1,5 +1,11 @@
 # Comprehensive Rust 🦀
 
+> **This copy of the course runs its code examples in your browser** instead of
+> on play.rust-lang.org: rustc, the linker and your program all run as
+> WebAssembly on the page. See [`offline/README.md`](offline/README.md). It is
+> not an official Google project; the official course is at
+> https://github.com/google/comprehensive-rust.
+
 [![Build workflow](https://img.shields.io/github/actions/workflow/status/google/comprehensive-rust/build.yml?style=flat-square)](https://github.com/google/comprehensive-rust/actions/workflows/build.yml?query=branch%3Amain)
 [![GitHub contributors](https://img.shields.io/github/contributors/google/comprehensive-rust?style=flat-square)](https://github.com/google/comprehensive-rust/graphs/contributors)
 [![GitHub stars](https://img.shields.io/github/stars/google/comprehensive-rust?style=flat-square)](https://github.com/google/comprehensive-rust/stargazers)
