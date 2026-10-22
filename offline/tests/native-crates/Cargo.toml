@@ -1,0 +1,27 @@
+# The crates the offline playground has (anyhow, tokio, ...), built natively,
+# so that test-all-examples.mjs can compile examples that use them natively
+# too. Keep in sync with the crates of the playground's toolchain.
+[package]
+name = "native-crates"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+futures = "0.3"
+itertools = "0.14"
+libc = "0.2"
+once_cell = "1"
+rand = "0.9"
+regex = "1"
+scopeguard = "1"
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }

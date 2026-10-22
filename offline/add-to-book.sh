@@ -11,7 +11,7 @@ set -eu
 OFFLINE=$(cd "$(dirname "$0")" && pwd)
 BOOK=${1:-$OFFLINE/../book/html}
 TOOLCHAIN=${2:-$OFFLINE/toolchain}
-FILES="rustc.wasm.gz wild.wasm.gz sysroot.bin.gz"
+FILES="rustc.wasm.gz wild.wasm.gz sysroot.bin.gz crates.bin.gz"
 
 for f in $FILES; do
   test -f "$TOOLCHAIN/$f" || { echo "missing $TOOLCHAIN/$f (run offline/fetch-toolchain.sh)" >&2; exit 1; }

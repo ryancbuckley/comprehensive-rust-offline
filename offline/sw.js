@@ -30,7 +30,9 @@ self.addEventListener("fetch", (event) => {
   // book.js asks which crates the playground has as soon as a page loads,
   // and shows the Run buttons only once it hears back. Answer here, so the
   // answer never depends on the network or on the page having started MSW
-  // yet: only the standard library is available.
+  // yet. book.js only uses the list to hide Run on examples with an
+  // `extern crate` line, which no example in the course has; programs can
+  // still use the crates the toolchain has (tokio, anyhow, ...).
   if (request.url === "https://play.rust-lang.org/meta/crates") {
     event.stopImmediatePropagation();
     event.respondWith(Response.json({ crates: [] }));
