@@ -1,14 +1,7 @@
-<script async src="https://www.gstatic.com/brandstudio/kato/cookie_choice_component/cookie_consent_bar.v3.js"
-        data-autoload-cookie-consent-bar="true"></script>
-
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-ZN78TEJMRW"></script>
+{{! This copy of the course does not load Google's analytics or cookie
+    consent bar; book.js still reports playground events through gtag. }}
 <script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-ZN78TEJMRW', {
-    'content_group': '{{ language }}'
-  });
+  function gtag() {}
 </script>
 
 {{! Move to template code after fixing this issue:
