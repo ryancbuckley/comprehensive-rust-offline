@@ -17,7 +17,7 @@
 //   { type: "done", id, stage: "compile" | "run", code, ms, timedOut? }
 //   { type: "error", id?, text }
 
-import { Kernel, importedMemory } from "./kernel.js";
+import { Kernel, OutOfMemoryError, importedMemory } from "./kernel.js";
 
 const SYSROOT = "/sysroot";
 const TARGET = "wasm32-wasip1-threads";
@@ -226,10 +226,21 @@ async function run({ id, source, opt, edition, tests, color, env, timeoutMs }) {
   status("Ready.");
 }
 
+/** An error for the page: its name and message, then where it happened.
+ *  (Chrome's `stack` starts with the name and message; Safari's has only the
+ *  frames.) */
+function errorText(err) {
+  if (err instanceof OutOfMemoryError) return err.message;
+  if (!(err instanceof Error)) return String(err);
+  let frames = err.stack ?? "";
+  if (frames.startsWith(`${err.name}:`)) frames = frames.split("\n").slice(1).join("\n");
+  return `${err.name}: ${err.message}${frames ? `\n${frames}` : ""}`;
+}
+
 onmessage = (e) => {
   const m = e.data;
   if (m.type === "run") {
-    run(m).catch((err) => postMessage({ type: "error", id: m.id, text: String(err.stack ?? err) }));
+    run(m).catch((err) => postMessage({ type: "error", id: m.id, text: errorText(err) }));
   } else if (m.type === "cancel") {
     cancelled.add(m.id);
     const proc = running.get(m.id);

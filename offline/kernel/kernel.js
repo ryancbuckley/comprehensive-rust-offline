@@ -123,6 +123,16 @@ function newMemory(limits) {
   });
 }
 
+/** The browser would not allocate a process's memory. */
+export class OutOfMemoryError extends Error {
+  constructor() {
+    super("Out of memory: the browser refused to give this page more WebAssembly memory. " +
+      "The compiler, the linker and each program reserve up to 1 GB, and some browsers " +
+      "allow less than others. Reloading the page frees it.");
+    this.name = "OutOfMemoryError";
+  }
+}
+
 export class Process {
   constructor(kernel, pid, opts) {
     this.kernel = kernel;
@@ -253,9 +263,42 @@ export class Kernel {
   warmUp(module) {
     const program = this.keptWarm.get(module);
     if (!program || this.warm.has(module)) return;
-    const memory = newMemory(program.limits ?? importedMemory(program.bytes));
+    let memory;
+    try {
+      memory = newMemory(program.limits ?? importedMemory(program.bytes));
+    } catch {
+      // No memory to spare: stop preparing processes ahead.
+      this.coolDown();
+      return;
+    }
     const threads = this.prepareThreads(module, memory, this.threadsUsed.get(module) ?? 1);
     this.warm.set(module, { memory, threads });
+  }
+
+  /** Stop keeping processes prepared, and let go of the prepared ones: each
+   *  holds a memory, which some browsers have few of. */
+  coolDown() {
+    this.keptWarm.clear();
+    for (const { threads } of this.warm.values()) {
+      for (const t of threads) t.worker.terminate();
+    }
+    this.warm.clear();
+  }
+
+  /** A new process memory; on failure, free the prepared processes' and try
+   *  once more. */
+  allocateMemory(limits) {
+    try {
+      return newMemory(limits);
+    } catch (e) {
+      if (!(e instanceof RangeError)) throw e;
+      this.coolDown();
+      try {
+        return newMemory(limits);
+      } catch {
+        throw new OutOfMemoryError();
+      }
+    }
   }
 
   async loop() {
@@ -288,7 +331,7 @@ export class Kernel {
       proc.spares = warm.threads;
       this.startThread(proc, null);
     } else {
-      proc.memory = newMemory(limits);
+      proc.memory = this.allocateMemory(limits);
       this.startThread(proc, null);
       proc.spares = this.prepareThreads(proc.module, proc.memory, (this.threadsUsed.get(proc.module) ?? 1) - 1);
     }
