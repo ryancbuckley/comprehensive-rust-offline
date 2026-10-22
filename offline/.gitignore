@@ -1,0 +1,4 @@
+# Downloaded toolchain (fetch-toolchain.sh), locally built tools, outputs
+/toolchain/
+/.tools/
+/test-output/
