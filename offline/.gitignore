@@ -2,3 +2,5 @@
 /toolchain/
 /.tools/
 /test-output/
+/tests/native-crates/target/
+/tests/native-crates/Cargo.lock

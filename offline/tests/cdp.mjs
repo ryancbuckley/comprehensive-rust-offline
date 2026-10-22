@@ -41,10 +41,18 @@ export async function launch() {
       for (const l of listeners) l(m);
     }
   };
+  // A crashed or hung page never answers, so every call has a time limit.
   const send = (method, params = {}, sessionId) =>
     new Promise((resolve, reject) => {
       const id = nextId++;
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`${method}: no answer from Chrome in 3 minutes`));
+      }, 180000);
+      pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
       ws.send(JSON.stringify({ id, method, params, sessionId }));
     });
 
@@ -59,6 +67,12 @@ export async function launch() {
       listeners.push((m) => m.sessionId === sessionId && f(m.method, m.params));
     },
     send: (method, params) => send(method, params, sessionId),
+    /** Every message from Chrome, for any session (workers included). */
+    raw(f) {
+      listeners.push(f);
+    },
+    /** Send to another session, such as a worker's. */
+    sendTo: (method, params, otherSessionId) => send(method, params, otherSessionId),
     async evaluate(expression) {
       const r = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, sessionId);
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
@@ -94,8 +108,12 @@ export async function waitForOfflinePlayground(page, timeoutMs = 60000) {
  *  null if it has no visible Run button. */
 export async function runPlayground(page, i, timeoutMs = 150000) {
   const clicked = await page.evaluate(`(() => {
-    const b = document.querySelectorAll(".playground")[${i}]?.querySelector(".play-button");
+    const pg = document.querySelectorAll(".playground")[${i}];
+    const b = pg?.querySelector(".play-button");
     if (!b || b.classList.contains("hidden") || b.hidden) return false;
+    // Examples in speaker notes are in a closed <details>, where innerText
+    // (which keeps the line breaks) is empty.
+    for (let d = pg.closest("details"); d; d = d.parentElement?.closest("details")) d.open = true;
     b.click();
     return true;
   })()`);

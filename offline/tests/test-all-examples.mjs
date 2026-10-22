@@ -7,11 +7,12 @@
 // The code is taken from the request book.js sends, so it is exactly what the
 // reader runs (hidden lines, `#![allow(unused)]` and all). Writes
 // offline/test-output/report.json and prints a summary. Needs the book served
-// (offline/serve.sh), Chrome, and the nightly-2026-10-19 toolchain.
+// (offline/serve.sh), Chrome, and the nightly-2026-10-19 toolchain. Examples
+// that use crates are compiled natively against tests/native-crates.
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import process from "node:process";
 import { launch, runPlayground, waitForOfflinePlayground } from "./cdp.mjs";
 
@@ -35,13 +36,45 @@ function pages(dir) {
   });
 }
 
+/** Build tests/native-crates and return the rustc arguments that make its
+ *  dependencies available. */
+function nativeCrates() {
+  const dir = join(ROOT, "offline/tests/native-crates");
+  const out = execFileSync("cargo", ["+nightly-2026-10-19", "build", "--release",
+    "--message-format=json-render-diagnostics"], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const direct = Object.keys(
+    readFileSync(join(dir, "Cargo.toml"), "utf8").split("[dependencies]")[1]
+      .split("\n").reduce((deps, line) => {
+        const m = /^([\w-]+)\s*=/.exec(line);
+        if (m) deps[m[1].replace(/-/g, "_")] = true;
+        return deps;
+      }, {}));
+  const dirs = new Set();
+  const externs = [];
+  for (const line of out.split("\n")) {
+    if (!line) continue;
+    const m = JSON.parse(line);
+    if (m.reason !== "compiler-artifact") continue;
+    for (const f of m.filenames) {
+      dirs.add(dirname(f));
+      // Libraries need both: the .rmeta has the full metadata, the .rlib the code.
+      if (direct.includes(m.target.name.replace(/-/g, "_")) && /\.(rlib|rmeta|dylib|so)$/.test(f)) {
+        externs.push("--extern", `${m.target.name.replace(/-/g, "_")}=${f}`);
+      }
+    }
+  }
+  return [...[...dirs].flatMap((d) => ["-L", `dependency=${d}`]), ...externs];
+}
+const crateArgs = nativeCrates();
+
 /** Compile and run `params` (an /execute request) natively. */
 function native(params, dir) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "main.rs"), params.code);
   const exe = join(dir, "main");
   const c = spawnSync("rustc", ["+nightly-2026-10-19", `--edition=${params.edition}`,
-    ...(params.tests ? ["--test"] : []), "-o", exe, "main.rs"], { cwd: dir, encoding: "utf8" });
+    ...(params.tests ? ["--test"] : []), "-o", exe, "main.rs", ...crateArgs],
+    { cwd: dir, encoding: "utf8" });
   if (c.status !== 0) return { compiled: false, stdout: "", stderr: c.stderr };
   const r = spawnSync(exe, [], { cwd: dir, encoding: "utf8", timeout: 10000 });
   return { compiled: true, stdout: r.stdout, stderr: r.stderr, status: r.status };
@@ -55,9 +88,12 @@ console.log(`${list.length} pages with examples`);
 
 const page = await launch();
 let lastRequest = null;
+let lastRequestId = null;
 page.on((method, p) => {
   if (method === "Network.requestWillBeSent" && p.request.url === "https://play.rust-lang.org/execute") {
-    lastRequest = JSON.parse(p.request.postData);
+    // Chrome leaves out large bodies; those are fetched after the run.
+    lastRequest = p.request.postData ? JSON.parse(p.request.postData) : null;
+    lastRequestId = p.requestId;
   }
 });
 
@@ -74,8 +110,13 @@ for (const path of list) {
   }
   for (let i = 0; i < n; i++) {
     lastRequest = null;
+    lastRequestId = null;
     const res = await runPlayground(page, i);
     if (!res) continue;
+    if (!lastRequest && lastRequestId) {
+      const { postData } = await page.send("Network.getRequestPostData", { requestId: lastRequestId });
+      lastRequest = JSON.parse(postData);
+    }
     const entry = { page: path, block: i, browser: res, params: lastRequest };
     if (!lastRequest) {
       entry.status = "no-request";
