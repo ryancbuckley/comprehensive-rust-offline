@@ -40,7 +40,8 @@ for target in $TARGETS; do
   for file in $("$BAZEL" cquery --output=files "$target" 2>/dev/null); do
     case "$file" in
       *.d|*.rlib|*.rmeta) ;;
-      *) install -m 755 "$file" "$TOOLS/bin/" ;;
+      # Bazel names the prebuilt binaries mdbook__bin and so on.
+      *) install -m 755 "$file" "$TOOLS/bin/$(basename "$file" __bin)" ;;
     esac
   done
 done
