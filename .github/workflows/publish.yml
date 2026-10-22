@@ -2,10 +2,12 @@ name: Publish
 
 # See also TRANSLATIONS.md.
 
+# This copy of the course publishes the offline-playground branch: the course
+# with its code examples compiled and run in the browser (see offline/).
 on:
   push:
     branches:
-      - main
+      - offline-playground
   workflow_dispatch:
 
 permissions:
@@ -72,6 +74,14 @@ jobs:
           MDBOOK_OUTPUT='{"xgettext": {"pot-file": "messages.pot", "granularity": 0}}' mdbook build -d synced-po
           for file in synced-po/*.po; do msgmerge --update $file synced-po/messages.pot ; done
           i18n-report report book/html/synced-translation-report.html synced-po/*.po
+
+      - name: Add the offline playground
+        run: |
+          (cd offline && npm ci)
+          offline/fetch-toolchain.sh
+          offline/add-to-book.sh book/html
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
