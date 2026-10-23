@@ -269,7 +269,8 @@ export class Kernel {
     if (!program || this.warm.has(module)) return;
     let memory;
     try {
-      memory = newMemory(program.limits ?? importedMemory(program.bytes), program.maxPages);
+      const max = Array.isArray(program.maxPages) ? program.maxPages[0] : program.maxPages;
+      memory = newMemory(program.limits ?? importedMemory(program.bytes), max);
     } catch {
       // No memory to spare: stop preparing processes ahead.
       this.coolDown();

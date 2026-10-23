@@ -107,16 +107,24 @@ async function readFile(fs, path) {
   return file.bytes();
 }
 
-// On a device with little memory, the kernel keeps no idle workers or
-// prepared processes, and processes reserve less. Chrome says how much a
-// device has (in GB, at most 8); Safari does not.
+// Memory limits, in 64 KiB pages: what a process may grow to. Browsers
+// reserve the limit up front, as shared memory cannot move. Chrome and Firefox
+// only reserve address space; Safari (WebKit, which every browser on iOS uses)
+// counts it against a tight budget. Lists are tried in turn, largest first.
+const MIB = 16;
+const ua = self.navigator?.userAgent ?? "";
+const WEBKIT = /AppleWebKit/.test(ua) && !/Chrome\/|Chromium\//.test(ua);
+// Chrome says how much memory a device has, in GB (at most 8); Safari does not.
 const LOW_MEMORY = (self.navigator?.deviceMemory ?? 8) < 4;
-// Memory limits, in 64 KiB pages: what a process may grow to, which browsers
-// reserve up front. The linker uses about 20 MiB. Programs are linked to
-// allow all 4 GiB a 32-bit program can address, and get the most of that
-// the browser will reserve.
-const LINKER_MAX_PAGES = 256 * 16; // 256 MiB
-const PROGRAM_MAX_PAGES = [4096, 2048, 1024, 512].map((mib) => mib * 16);
+// Where memory is scarce: no idle workers or prepared processes, which hold
+// memories of their own, and smaller limits.
+const THRIFTY = WEBKIT || LOW_MEMORY;
+// The compiler uses 100 to 300 MiB for most programs (220 for 2,500 lines),
+// the linker under 50.
+const RUSTC_MAX_PAGES = (THRIFTY ? [768, 512] : [1024, 512]).map((mib) => mib * MIB);
+const LINKER_MAX_PAGES = 256 * MIB;
+// Programs are linked to allow all 4 GiB a 32-bit program can address.
+const PROGRAM_MAX_PAGES = (THRIFTY ? [1024, 512, 256] : [4096, 2048, 1024, 512]).map((mib) => mib * MIB);
 
 let kernel, rustc;
 // rustc arguments that make the bundled crates available, and their names.
@@ -148,13 +156,14 @@ async function init() {
         .catch(() => null),
     ]);
     const linker = { ...wild, maxPages: LINKER_MAX_PAGES };
+    const compiler = { ...rustcProgram, maxPages: RUSTC_MAX_PAGES };
     // Idle workers and prepared compiler and linker processes: each compile
     // starts several threads, and starting them is a good part of its time.
     kernel = new Kernel({
-      createWorker: createBrowserWorker, programs: { "wasm-ld": linker }, pool: LOW_MEMORY ? 0 : 4,
+      createWorker: createBrowserWorker, programs: { "wasm-ld": linker }, pool: THRIFTY ? 0 : 4,
     });
-    if (!LOW_MEMORY) {
-      kernel.keepWarm(rustcProgram);
+    if (!THRIFTY) {
+      kernel.keepWarm(compiler);
       kernel.keepWarm(linker);
     }
     addBundle(kernel.fs, bundle, SYSROOT);
@@ -171,7 +180,7 @@ async function init() {
     }
     kernel.fs.mkdirp("/tmp");
     kernel.fs.mkdirp("/work");
-    rustc = rustcProgram;
+    rustc = compiler;
     status("Ready.");
     postMessage({ type: "ready", crates: crateNames });
     readyResolve();
