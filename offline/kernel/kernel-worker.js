@@ -18,6 +18,7 @@
 //   { type: "error", id?, text }
 
 import { Kernel, OutOfMemoryError, importedMemory } from "./kernel.js";
+import { File } from "./fs.js";
 
 const SYSROOT = "/sysroot";
 const TARGET = "wasm32-wasip1-threads";
@@ -75,22 +76,44 @@ async function program(url, label) {
   return { module, limits };
 }
 
-async function gunzip(res) {
-  const stream = res.body.pipeThrough(new DecompressionStream("gzip"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+async function bytesOf(res) {
+  return new Uint8Array(await res.arrayBuffer());
 }
 
-/** A bundle is a u32 (LE) header length, a JSON header listing
- *  `[path, offset, size]` entries, and the file contents. */
-function unpack(fs, bundle, root) {
-  const len = new DataView(bundle.buffer, bundle.byteOffset).getUint32(0, true);
-  const files = JSON.parse(new TextDecoder().decode(bundle.subarray(4, 4 + len)));
-  const base = 4 + len;
-  for (const [path, offset, size] of files) {
-    fs.writeFile(`${root}/${path}`, bundle.slice(base + offset, base + offset + size));
+/** Add a bundle (scripts/bundle.py) to the filesystem under `root`. Its
+ *  files stay compressed until a program opens them: a compile reads about
+ *  half of the standard library and crates. */
+function addBundle(fs, bundle, root) {
+  const view = new DataView(bundle.buffer, bundle.byteOffset);
+  if (new TextDecoder().decode(bundle.subarray(0, 4)) !== "PGB2") throw new Error(`${root}: not a bundle`);
+  const len = view.getUint32(4, true);
+  const files = JSON.parse(new TextDecoder().decode(bundle.subarray(8, 8 + len)));
+  const base = 8 + len;
+  for (const [path, offset, length, size] of files) {
+    // Copied out, so that the bundle itself can be freed.
+    const bytes = bundle.slice(base + offset, base + offset + length);
+    const file = length === size ? new File(bytes) : File.compressed(bytes, size);
+    const parts = path.split("/");
+    const name = parts.pop();
+    fs.mkdirp(`${root}/${parts.join("/")}`).entries.set(name, file);
   }
-  return files.length;
 }
+
+/** The contents of a file, unpacked. */
+async function readFile(fs, path) {
+  const file = fs.lookup(path);
+  await file.unpack();
+  return file.bytes();
+}
+
+// On a device with little memory, the kernel keeps no idle workers or
+// prepared processes, and processes reserve less. Chrome says how much a
+// device has (in GB, at most 8); Safari does not.
+const LOW_MEMORY = (self.navigator?.deviceMemory ?? 8) < 4;
+// Memory limits, in 64 KiB pages: what a process may grow to, which browsers
+// reserve up front. The linker uses about 20 MiB; programs get room to spare.
+const LINKER_MAX_PAGES = 256 * 16; // 256 MiB
+const PROGRAM_MAX_PAGES = 512 * 16; // 512 MiB
 
 let kernel, rustc;
 // rustc arguments that make the bundled crates available, and their names.
@@ -115,21 +138,26 @@ async function init() {
     const [rustcProgram, wild, bundle, crates] = await Promise.all([
       program(new URL("../dist/rustc.wasm.gz", import.meta.url), "rustc"),
       program(new URL("../dist/wild.wasm.gz", import.meta.url), "linker"),
-      fetchOk(new URL("../dist/sysroot.bin.gz", import.meta.url)).then(gunzip),
+      fetchOk(new URL("../dist/sysroot.bundle", import.meta.url)).then(bytesOf),
       // Optional: crates programs can use (crates/build.py).
-      fetch(new URL("../dist/crates.bin.gz", import.meta.url))
-        .then((res) => (res.ok ? gunzip(res) : null))
+      fetch(new URL("../dist/crates.bundle", import.meta.url))
+        .then((res) => (res.ok ? bytesOf(res) : null))
         .catch(() => null),
     ]);
+    const linker = { ...wild, maxPages: LINKER_MAX_PAGES };
     // Idle workers and prepared compiler and linker processes: each compile
     // starts several threads, and starting them is a good part of its time.
-    kernel = new Kernel({ createWorker: createBrowserWorker, programs: { "wasm-ld": wild }, pool: 4 });
-    kernel.keepWarm(rustcProgram);
-    kernel.keepWarm(wild);
-    unpack(kernel.fs, bundle, SYSROOT);
+    kernel = new Kernel({
+      createWorker: createBrowserWorker, programs: { "wasm-ld": linker }, pool: LOW_MEMORY ? 0 : 4,
+    });
+    if (!LOW_MEMORY) {
+      kernel.keepWarm(rustcProgram);
+      kernel.keepWarm(linker);
+    }
+    addBundle(kernel.fs, bundle, SYSROOT);
     if (crates) {
-      unpack(kernel.fs, crates, CRATES);
-      const externs = JSON.parse(new TextDecoder().decode(kernel.fs.readFile(`${CRATES}/externs.json`)));
+      addBundle(kernel.fs, crates, CRATES);
+      const externs = JSON.parse(new TextDecoder().decode(await readFile(kernel.fs, `${CRATES}/externs.json`)));
       // The bundle's proc macros are wasm modules, which rustc runs in its
       // interpreter.
       crateArgs = ["-L", `dependency=${CRATES}`, "-Zwasm-proc-macros"];
@@ -205,7 +233,7 @@ async function run({ id, source, opt, edition, tests, color, env, timeoutMs }) {
     status("Ready.");
     return;
   }
-  const proc = kernel.spawn({ bytes, module }, {
+  const proc = kernel.spawn({ bytes, module, maxPages: PROGRAM_MAX_PAGES }, {
     // Tests run in this process: with panic=abort, libtest would otherwise
     // run each test in a subprocess, and WASI cannot start one.
     args: tests ? ["main", "-Zunstable-options", "--force-run-in-process"] : ["main"],

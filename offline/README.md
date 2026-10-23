@@ -66,7 +66,7 @@ compares each with the same code compiled natively.
 `.github/workflows/publish.yml` builds the course and its translations, as
 upstream does. It then downloads the toolchain from this repository's release
 `offline-toolchain-1` (four files: `rustc.wasm.gz`, `wild.wasm.gz`,
-`sysroot.bin.gz`, `crates.bin.gz`) and publishes everything to GitHub Pages. It runs on pushes to
+`sysroot.bundle`, `crates.bundle`) and publishes everything to GitHub Pages. It runs on pushes to
 the `offline-playground` branch. Before the first run:
 
 1. Create the release `offline-toolchain-1` and upload the four files to it.

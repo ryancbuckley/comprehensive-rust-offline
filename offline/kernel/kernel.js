@@ -115,10 +115,14 @@ class Stdio {
   constructor(which) { this.which = which; }
 }
 
-function newMemory(limits) {
+/** A process memory: as the module declares it, but no larger than
+ *  `maxPages` if given (the reservation is the maximum, and browsers differ in
+ *  how much they allow). */
+function newMemory(limits, maxPages) {
+  const maximum = Math.min(limits.maximum ?? 65536, maxPages ?? 65536);
   return new WebAssembly.Memory({
     initial: limits.initial,
-    maximum: limits.maximum ?? 65536,
+    maximum: Math.max(maximum, limits.initial),
     shared: true,
   });
 }
@@ -127,8 +131,8 @@ function newMemory(limits) {
 export class OutOfMemoryError extends Error {
   constructor() {
     super("Out of memory: the browser refused to give this page more WebAssembly memory. " +
-      "The compiler, the linker and each program reserve up to 1 GB, and some browsers " +
-      "allow less than others. Reloading the page frees it.");
+      "The compiler and each program reserve memory up front (up to 1 GB for the compiler), " +
+      "and some browsers allow less than others. Reloading the page frees it.");
     this.name = "OutOfMemoryError";
   }
 }
@@ -265,7 +269,7 @@ export class Kernel {
     if (!program || this.warm.has(module)) return;
     let memory;
     try {
-      memory = newMemory(program.limits ?? importedMemory(program.bytes));
+      memory = newMemory(program.limits ?? importedMemory(program.bytes), program.maxPages);
     } catch {
       // No memory to spare: stop preparing processes ahead.
       this.coolDown();
@@ -287,14 +291,14 @@ export class Kernel {
 
   /** A new process memory; on failure, free the prepared processes' and try
    *  once more. */
-  allocateMemory(limits) {
+  allocateMemory(limits, maxPages) {
     try {
-      return newMemory(limits);
+      return newMemory(limits, maxPages);
     } catch (e) {
       if (!(e instanceof RangeError)) throw e;
       this.coolDown();
       try {
-        return newMemory(limits);
+        return newMemory(limits, maxPages);
       } catch {
         throw new OutOfMemoryError();
       }
@@ -314,7 +318,8 @@ export class Kernel {
 
   /**
    * Start a program: `{ module, limits }`, with `limits` from
-   * `importedMemory` (or `{ module, bytes }` to compute them). Resolves the
+   * `importedMemory` (or `{ module, bytes }` to compute them), and optionally
+   * `maxPages`, a limit on its memory below the module's own. Resolves the
    * returned process's `exited` with the exit code.
    */
   spawn(program, opts = {}) {
@@ -331,7 +336,7 @@ export class Kernel {
       proc.spares = warm.threads;
       this.startThread(proc, null);
     } else {
-      proc.memory = this.allocateMemory(limits);
+      proc.memory = this.allocateMemory(limits, program.maxPages);
       this.startThread(proc, null);
       proc.spares = this.prepareThreads(proc.module, proc.memory, (this.threadsUsed.get(proc.module) ?? 1) - 1);
     }
@@ -676,6 +681,8 @@ export class Kernel {
     if (path === null) return E.BADF;
     const oflags = u32(a[4]), fdflags = u32(a[7]);
     let node = this.fs.lookup(path);
+    // A compressed file is unpacked when first opened; then open it again.
+    if (node instanceof File && node.packed) return node.unpack().then(() => this.sys_path_open(p, a));
     if (node && oflags & OFLAGS.EXCL && oflags & OFLAGS.CREAT) return E.EXIST;
     if (!node) {
       if (!(oflags & OFLAGS.CREAT)) return E.NOENT;
