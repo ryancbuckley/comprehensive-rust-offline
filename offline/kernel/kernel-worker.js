@@ -2,10 +2,11 @@
 // toolchain, and compiles and runs programs for the page.
 //
 // Messages from the page:
-//   { type: "run", id, source, opt?, edition?, tests?, color?, env?, timeoutMs? }
+//   { type: "run", id, source, opt?, edition?, tests?, color?, clippy?, env?, timeoutMs? }
 //       Compile `source` and run it. `tests` builds a test harness
 //       (`--test`) instead of a binary. `color` (default true) asks rustc
-//       for colored diagnostics. `env` is the program's environment.
+//       for colored diagnostics. `clippy` adds Clippy's lints to the
+//       compiler's warnings. `env` is the program's environment.
 //       `timeoutMs` kills the program if it runs longer.
 //   { type: "cancel", id }
 //       Stop run `id`: kill its compiler or program, whichever is running.
@@ -179,7 +180,7 @@ async function init() {
   }
 }
 
-async function run({ id, source, opt, edition, tests, color, env, timeoutMs }) {
+async function run({ id, source, opt, edition, tests, color, clippy, env, timeoutMs }) {
   await ready;
   // Every run ends with a done message, a cancelled one too.
   if (cancelled.delete(id)) {
@@ -209,7 +210,8 @@ async function run({ id, source, opt, edition, tests, color, env, timeoutMs }) {
       `--color=${color === false ? "never" : "always"}`, "-Zthreads=1",
       ...crateArgs,
     ],
-    env: { RUST_BACKTRACE: "0", HOME: "/tmp", TMPDIR: "/tmp" },
+    // RUSTC_CLIPPY: this rustc has Clippy built in.
+    env: { RUST_BACKTRACE: "0", HOME: "/tmp", TMPDIR: "/tmp", ...(clippy ? { RUSTC_CLIPPY: "1" } : {}) },
     stdout: out("compiler"),
     stderr: out("compiler"),
   });
