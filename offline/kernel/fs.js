@@ -5,16 +5,44 @@
 
 let nextIno = 1n;
 
+async function inflate(packed) {
+  const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
 export class File {
   constructor(data = new Uint8Array(0)) {
     this.ino = nextIno++;
     this.data = data; // capacity may exceed size
     this.size = data.length;
     this.mtime = BigInt(Date.now()) * 1000000n;
+    /** Compressed contents (raw deflate), until `unpack`. */
+    this.packed = null;
+  }
+
+  /** A file of `size` bytes whose contents stay compressed until `unpack`. */
+  static compressed(packed, size) {
+    const f = new File();
+    f.packed = packed;
+    f.size = size;
+    return f;
+  }
+
+  /** Decompress the contents, if compressed (the kernel does so when the
+   *  file is opened). Resolves when they are ready. */
+  unpack() {
+    if (!this.packed) return Promise.resolve();
+    this.unpacking ??= inflate(this.packed).then((data) => {
+      this.data = data;
+      this.packed = null;
+      this.unpacking = null;
+    });
+    return this.unpacking;
   }
 
   /** The contents, without spare capacity. */
   bytes() {
+    if (this.packed) throw new Error("the file has not been unpacked");
     return this.data.subarray(0, this.size);
   }
 

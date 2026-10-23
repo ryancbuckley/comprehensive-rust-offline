@@ -12,7 +12,7 @@ OFFLINE=$(cd "$(dirname "$0")" && pwd)
 TAG=${OFFLINE_TOOLCHAIN_TAG:-offline-toolchain-1}
 URL=${1:-https://github.com/${GITHUB_REPOSITORY:?set GITHUB_REPOSITORY or pass a URL}/releases/download/$TAG}
 mkdir -p "$OFFLINE/toolchain"
-for f in rustc.wasm.gz wild.wasm.gz sysroot.bin.gz crates.bin.gz; do
+for f in rustc.wasm.gz wild.wasm.gz sysroot.bundle crates.bundle; do
   curl -fsSL -o "$OFFLINE/toolchain/$f" "$URL/$f"
 done
 ls -l "$OFFLINE/toolchain"
