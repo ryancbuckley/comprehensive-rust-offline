@@ -116,8 +116,8 @@ class Stdio {
 }
 
 /** A process memory: as the module declares it, but no larger than
- *  `maxPages` if given (the reservation is the maximum, and browsers differ in
- *  how much they allow). */
+ *  `maxPages` if given. Shared memory cannot move, so browsers reserve its
+ *  maximum up front: address space only, but some have little of it. */
 function newMemory(limits, maxPages) {
   const maximum = Math.min(limits.maximum ?? 65536, maxPages ?? 65536);
   return new WebAssembly.Memory({
@@ -289,20 +289,28 @@ export class Kernel {
     this.warm.clear();
   }
 
-  /** A new process memory; on failure, free the prepared processes' and try
-   *  once more. */
+  /** A new process memory. `maxPages` is a limit, or a list of limits to try
+   *  in turn, largest first: the largest the browser will reserve wins. On
+   *  failure, free the prepared processes' memories and try once more. */
   allocateMemory(limits, maxPages) {
-    try {
-      return newMemory(limits, maxPages);
-    } catch (e) {
-      if (!(e instanceof RangeError)) throw e;
-      this.coolDown();
-      try {
-        return newMemory(limits, maxPages);
-      } catch {
-        throw new OutOfMemoryError();
+    const limitsToTry = Array.isArray(maxPages) ? maxPages : [maxPages];
+    const attempt = () => {
+      for (const max of limitsToTry) {
+        try {
+          return newMemory(limits, max);
+        } catch (e) {
+          if (!(e instanceof RangeError)) throw e;
+        }
       }
+      return null;
+    };
+    let memory = attempt();
+    if (!memory) {
+      this.coolDown();
+      memory = attempt();
     }
+    if (!memory) throw new OutOfMemoryError();
+    return memory;
   }
 
   async loop() {
@@ -319,8 +327,9 @@ export class Kernel {
   /**
    * Start a program: `{ module, limits }`, with `limits` from
    * `importedMemory` (or `{ module, bytes }` to compute them), and optionally
-   * `maxPages`, a limit on its memory below the module's own. Resolves the
-   * returned process's `exited` with the exit code.
+   * `maxPages`, a limit on its memory below the module's own (or a list of
+   * them to try, largest first). Resolves the returned process's `exited`
+   * with the exit code.
    */
   spawn(program, opts = {}) {
     const limits = program.limits ?? importedMemory(program.bytes);

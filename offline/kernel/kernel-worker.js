@@ -111,9 +111,11 @@ async function readFile(fs, path) {
 // device has (in GB, at most 8); Safari does not.
 const LOW_MEMORY = (self.navigator?.deviceMemory ?? 8) < 4;
 // Memory limits, in 64 KiB pages: what a process may grow to, which browsers
-// reserve up front. The linker uses about 20 MiB; programs get room to spare.
+// reserve up front. The linker uses about 20 MiB. Programs are linked to
+// allow all 4 GiB a 32-bit program can address, and get the most of that
+// the browser will reserve.
 const LINKER_MAX_PAGES = 256 * 16; // 256 MiB
-const PROGRAM_MAX_PAGES = 512 * 16; // 512 MiB
+const PROGRAM_MAX_PAGES = [4096, 2048, 1024, 512].map((mib) => mib * 16);
 
 let kernel, rustc;
 // rustc arguments that make the bundled crates available, and their names.
@@ -202,6 +204,8 @@ async function run({ id, source, opt, edition, tests, color, env, timeoutMs }) {
       // target spec does not allow -Clink-self-contained.
       "-Clinker=wasm-ld", "-Clinker-flavor=wasm-ld",
       `-Clink-arg=${SELF_CONTAINED}/crt1-command.o`, "-L", SELF_CONTAINED,
+      // Instead of the target's 1 GiB: the kernel decides what is reserved.
+      "-Clink-arg=--max-memory=4294967296",
       `--color=${color === false ? "never" : "always"}`, "-Zthreads=1",
       ...crateArgs,
     ],
