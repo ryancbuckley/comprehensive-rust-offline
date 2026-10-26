@@ -42,6 +42,9 @@
   const kernelReady = new Promise((resolve) => (kernelStarted = resolve));
   let nextId = 1;
   const runs = new Map();
+  // What the kernel last said it was doing (loading the toolchain,
+  // compiling, ...), and when: what a run that gets no answer reports.
+  let lastStatus = { text: "Starting the compiler worker…", at: performance.now() };
 
   function startKernel() {
     kernel = new Worker(new URL("kernel/kernel-worker.js", offline), { type: "module" });
@@ -56,6 +59,11 @@
     kernelStarted();
     kernel.onmessage = (e) => {
       const m = e.data;
+      if (m.type === "status") {
+        lastStatus = { text: m.text, at: performance.now() };
+        console.info(`offline playground: ${m.text} (${(lastStatus.at / 1000).toFixed(1)} s after the page loaded)`);
+        return;
+      }
       if (m.type === "error" && m.id === undefined) {
         console.error(m.text);
         for (const run of runs.values()) {
@@ -99,13 +107,28 @@
   }
 
   const RUN_TIMEOUT_MS = 10000;
+  // book.js gives up after 120 s with only "timeout"; answer before that,
+  // saying where the run got stuck.
+  const ANSWER_TIMEOUT_MS = 110000;
 
   /** Handle a play.rust-lang.org `/execute` request in the browser. */
   async function execute(params) {
     await kernelReady;
     return new Promise((resolve) => {
       const id = nextId++;
-      runs.set(id, { stdout: "", stderr: "", resolve });
+      const watchdog = setTimeout(() => {
+        runs.delete(id);
+        kernel.postMessage({ type: "cancel", id });
+        const ago = ((performance.now() - lastStatus.at) / 1000).toFixed(0);
+        const text = `The compiler in this page didn't answer within ${ANSWER_TIMEOUT_MS / 1000} s. ` +
+          `The last it said, ${ago} s ago: ${lastStatus.text}`;
+        console.error(`offline playground: ${text}`);
+        resolve({ error: text });
+      }, ANSWER_TIMEOUT_MS);
+      runs.set(id, {
+        stdout: "", stderr: "",
+        resolve: (v) => { clearTimeout(watchdog); resolve(v); },
+      });
       kernel.postMessage({
         type: "run",
         id,
