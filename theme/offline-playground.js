@@ -16,9 +16,6 @@
   "use strict";
 
   const playgrounds = document.querySelectorAll(".playground");
-  if (playgrounds.length === 0 || !("serviceWorker" in navigator)) {
-    return;
-  }
   // The offline files are at the root of the site; translations are built
   // into subdirectories (/de/, /ja/, ...), one level below it.
   let root = new URL(path_to_root, location.href);
@@ -186,14 +183,23 @@
     }
   }
 
+  // Every page shows the link, and has the service worker keep it for using
+  // the course offline; pages with examples also run them in the browser.
   findRoot()
     .then((found) => {
-      if (found) {
-        root = found;
-        offline = new URL("offline/", root);
-        showOfflineLink();
+      if (!found) {
+        return;
+      }
+      root = found;
+      offline = new URL("offline/", root);
+      showOfflineLink();
+      if (!("serviceWorker" in navigator)) {
+        return;
+      }
+      if (playgrounds.length > 0) {
         return main();
       }
+      return navigator.serviceWorker.register(new URL("offline-sw.js", root), { scope: root.pathname });
     })
     .catch((e) => console.error("offline playground:", e));
 })();
