@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Redirecting...</title>
+    <meta http-equiv="refresh" content="0; URL=../../leveraging-the-type-system/extension-traits/orphan-rule.html">
+    <link rel="canonical" href="../../leveraging-the-type-system/extension-traits/orphan-rule.html">
+  </head>
+  <body>
+      <p>Redirecting to... <a href="../../leveraging-the-type-system/extension-traits/orphan-rule.html">../../leveraging-the-type-system/extension-traits/orphan-rule.html</a>.</p>
+
+<script>
+    // This handles redirects that involve fragments.
+    document.addEventListener('DOMContentLoaded', function() {
+        const fragmentMap =
+            {}
+        ;
+        const fragment = window.location.hash;
+        if (fragment) {
+            let redirectUrl = "../../leveraging-the-type-system/extension-traits/orphan-rule.html";
+            const target = fragmentMap[fragment];
+            if (target) {
+                let url = new URL(target, window.location.href);
+                redirectUrl = url.href;
+            } else {
+                let url = new URL(redirectUrl, window.location.href);
+                url.hash = window.location.hash;
+                redirectUrl = url.href;
+            }
+            window.location.replace(redirectUrl);
+        }
+        // else redirect handled by http-equiv
+    });
+</script>
+  </body>
+</html>

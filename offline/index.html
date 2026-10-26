@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Using the course offline · Comprehensive Rust</title>
+<!-- add-to-book.sh copies this page to offline/index.html in the built course.
+     "Save for offline use" puts every file of the course (offline/files.json,
+     written by manifest.mjs) in the cache that the service worker (sw.js)
+     serves the site from. -->
+<script>
+  // mdBook's theme, if the reader picked one.
+  try {
+    const theme = localStorage.getItem("mdbook-theme")?.replace(/^"|"$/g, "");
+    if (theme) document.documentElement.dataset.theme = theme === "light" || theme === "rust" ? "light" : "dark";
+  } catch {}
+</script>
+<style>
+:root {
+  --bg: #fbfaf8; --panel: #ffffff; --border: #e3e0da; --text: #24211d; --muted: #77716a;
+  --accent: #b7410e; --on-accent: #ffffff;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #171513; --panel: #1f1c19; --border: #3a352f; --text: #ece7e1; --muted: #a39b91;
+    --accent: #e0703a; --on-accent: #171513; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #171513; --panel: #1f1c19; --border: #3a352f; --text: #ece7e1; --muted: #a39b91;
+  --accent: #e0703a; --on-accent: #171513; color-scheme: dark;
+}
+body {
+  margin: 0 auto; max-width: 720px; padding: 16px; background: var(--bg); color: var(--text);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+a { color: var(--accent); }
+h1 { font-size: 24px; margin: 8px 0; }
+h2 { font-size: 18px; margin: 32px 0 4px; }
+.muted { color: var(--muted); }
+code { font: 13px var(--mono); background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+       padding: 1px 4px; overflow-wrap: anywhere; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;
+         margin: 12px 0; }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+button { font: inherit; border-radius: 6px; padding: 6px 14px; cursor: pointer; border: 1px solid var(--accent); }
+button.primary { background: var(--accent); color: var(--on-accent); }
+button.secondary { background: transparent; color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+progress { width: 100%; height: 10px; margin: 12px 0 4px; accent-color: var(--accent); }
+#status { min-height: 1.5em; margin: 0; }
+</style>
+</head>
+<body>
+<h1>Using the course offline</h1>
+<p>This copy of Comprehensive Rust compiles and runs its code examples in your browser, so it works without a
+network once your browser has a copy of it. <a href="../">Back to the course</a>.</p>
+
+<h2>Save it in your browser</h2>
+<p>Pages you have opened are kept automatically, and so is the Rust compiler once you have run an example. To
+keep everything, including every page and search, save the course:</p>
+<div class="panel">
+  <div class="buttons">
+    <button id="save" class="primary" disabled>Save for offline use</button>
+    <button id="remove" class="secondary" disabled>Remove the saved copy</button>
+  </div>
+  <progress id="progress" value="0" max="1"></progress>
+  <p id="status" class="muted" role="status">Checking what this browser has saved…</p>
+</div>
+<p class="muted">Keep this page open while it saves. If it stops, press Save again: it continues where it left
+off. When a new version of the course is published, your browser fetches the changed files the next time
+you use them online; press Save again to fetch all of them at once.</p>
+<p><strong>Safari</strong> deletes what a website has stored if you don't visit it for about a week. To keep
+the course longer, add it to the Dock (on a Mac: File › Add to Dock) or to the Home Screen (on an iPhone or
+iPad: Share › Add to Home Screen), open it from there, and save it again there: it keeps its own copy.</p>
+
+<h2>Or download it</h2>
+<p>If your browser can't keep the course, for example in a private window, download a copy and serve it
+from your own computer. You need <a href="https://www.python.org/downloads/">Python 3</a>.</p>
+<ol>
+  <li>Download <a href="https://github.com/ryancbuckley/comprehensive-rust-offline/archive/refs/heads/gh-pages.zip">the
+    course as a ZIP file</a> (about 130 MB, with every language) and unzip it.</li>
+  <li>In a terminal, in the unzipped folder, run <code>python3 -m http.server 8000</code>.</li>
+  <li>Open <a href="http://localhost:8000/">http://localhost:8000/</a>.</li>
+</ol>
+<p class="muted">Opening the files directly (a <code>file://</code> address) doesn't work: browsers only run the
+compiler's workers on pages that come from a web server.</p>
+
+<h2>Licenses</h2>
+<p>The course, and the open-source software it runs in your browser, come with their licenses:
+see <a href="licenses.html">Licenses</a>.</p>
+
+<script>
+"use strict";
+(async function () {
+  const SAVE_HEADER = "X-Offline-Save";   // sw.js lets these through to the network
+  const CACHE_PREFIX = "course-";         // sw.js keeps the site in course-<version>
+  const PARALLEL = 6;
+  const root = new URL("../", location.href);
+  const lang = new URLSearchParams(location.search).get("lang");
+  const $ = (id) => document.getElementById(id);
+  const save = $("save"), remove = $("remove"), progress = $("progress"), status = $("status");
+  const mb = (bytes) => `${(bytes / 1e6).toFixed(bytes < 1e7 ? 1 : 0)} MB`;
+  const sum = (files) => files.reduce((n, f) => n + f.size, 0);
+  const urlOf = (f) => new URL(f.path, root).href;
+
+  if (!("caches" in window) || !navigator.serviceWorker) {
+    status.textContent = "This browser can't keep the course (a private window, perhaps). You can download it instead.";
+    return;
+  }
+  // The service worker serves the saved copy; a course page registers it too.
+  navigator.serviceWorker.register(new URL("offline-sw.js", root), { scope: root.pathname })
+    .then((reg) => reg.update())
+    .catch(() => {});
+
+  // The newest list of files when online, else the saved one.
+  const listUrl = new URL("files.json", location.href);
+  const fetchList = () => fetch(listUrl, { headers: { [SAVE_HEADER]: "1" }, cache: "no-cache" })
+    .catch(() => fetch(listUrl));
+  let manifest;
+  try {
+    manifest = await (await fetchList()).json();
+  } catch {
+    status.textContent = "You're offline, and this browser has no saved copy of the course.";
+    return;
+  }
+  // This language's pages, and the files every language uses (offline/).
+  const wanted = manifest.files.filter((f) => (lang ? f.lang === lang || f.path.startsWith("offline/") : !f.lang));
+  const total = sum(wanted);
+  const cacheName = CACHE_PREFIX + manifest.version;
+  progress.max = total;
+  save.textContent = `Save for offline use (${mb(total)})`;
+
+  async function savedUrls() {
+    const cache = await caches.open(cacheName);
+    return new Set((await cache.keys()).map((r) => r.url));
+  }
+
+  async function show(problem = "") {
+    const saved = await savedUrls();
+    const done = wanted.filter((f) => saved.has(urlOf(f)));
+    const have = sum(done);
+    progress.value = have;
+    status.textContent = (done.length === wanted.length
+      ? `Saved: this browser has the whole course (${mb(total)}).`
+      : `Saved: ${mb(have)} of ${mb(total)} (${done.length} of ${wanted.length} files).`) + problem;
+    save.disabled = done.length === wanted.length;
+    remove.disabled = saved.size === 0;
+  }
+
+  save.addEventListener("click", async () => {
+    save.disabled = remove.disabled = true;
+    // Ask the browser not to clear the copy when space runs low.
+    navigator.storage?.persist?.().catch(() => {});
+    const cache = await caches.open(cacheName);
+    try {
+      await cache.put(listUrl.href, await fetch(listUrl, { headers: { [SAVE_HEADER]: "1" }, cache: "no-cache" }));
+    } catch {
+      await show(" You're offline: try again when you're online.");
+      return;
+    }
+    const saved = await savedUrls();
+    const todo = wanted.filter((f) => !saved.has(urlOf(f)));
+    let have = total - sum(todo), failed = 0;
+    async function worker() {
+      for (let f; (f = todo.shift());) {
+        try {
+          const res = await fetch(urlOf(f), { headers: { [SAVE_HEADER]: "1" }, cache: "no-cache" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          await cache.put(urlOf(f), res);
+          have += f.size;
+        } catch (e) {
+          failed++;
+          console.warn(`not saved: ${f.path}:`, e);
+        }
+        progress.value = have;
+        status.textContent = `Saving: ${mb(have)} of ${mb(total)}…`;
+      }
+    }
+    await Promise.all(Array.from({ length: PARALLEL }, worker));
+    await show(failed ? ` ${failed} files could not be downloaded; press Save to try again.` : "");
+  });
+
+  remove.addEventListener("click", async () => {
+    for (const name of await caches.keys()) {
+      if (name.startsWith(CACHE_PREFIX)) await caches.delete(name);
+    }
+    await show();
+  });
+
+  await show();
+})();
+</script>
+</body>
+</html>
