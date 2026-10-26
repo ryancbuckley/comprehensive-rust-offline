@@ -17,8 +17,12 @@
 
   const playgrounds = document.querySelectorAll(".playground");
   // The offline files are at the root of the site; translations are built
-  // into subdirectories (/de/, /ja/, ...), one level below it.
-  let root = new URL(path_to_root, location.href);
+  // into subdirectories (/de/, /ja/, ...), one level below it. path_to_root
+  // is "" on the pages at the top, which as a URL is the page itself, not its
+  // directory: the root must be a directory, as it is the service worker's
+  // scope.
+  const toRoot = path_to_root || "./";
+  let root = new URL(toRoot, location.href);
   let offline = new URL("offline/", root);
 
   function loadScript(url) {
@@ -159,7 +163,7 @@
   // play.rust-lang.org. (The service worker keeps files.json, so this works
   // offline too.)
   async function findRoot() {
-    for (const candidate of [path_to_root, path_to_root + "../"]) {
+    for (const candidate of [toRoot, toRoot + "../"]) {
       const url = new URL(candidate, location.href);
       const res = await fetch(new URL("offline/files.json", url), { method: "HEAD" }).catch(() => null);
       if (res?.ok) {

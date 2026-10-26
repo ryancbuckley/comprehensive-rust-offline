@@ -8,4 +8,4 @@
 
 The course is available at https://ryancbuckley.github.io/comprehensive-rust-offline/. 
 
-If fully offline use is needed, go to https://ryancbuckley.github.io/comprehensive-rust-offline/offline/ and click "save for offline use" to cache the course materials in your browser.
+If fully offline use is needed, for example, on a flight, or otherwise in airplane mode, go to https://ryancbuckley.github.io/comprehensive-rust-offline/offline/ and click "save for offline use" to cache the course materials in your browser.
