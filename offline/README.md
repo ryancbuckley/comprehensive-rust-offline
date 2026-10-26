@@ -65,11 +65,13 @@ compares each with the same code compiled natively.
 
 `.github/workflows/publish.yml` builds the course and its translations, as
 upstream does. It then downloads the toolchain from this repository's release
-`offline-toolchain-1` (four files: `rustc.wasm.gz`, `wild.wasm.gz`,
-`sysroot.bundle`, `crates.bundle`) and publishes everything to GitHub Pages. It runs on pushes to
-the `offline-playground` branch. Before the first run:
+`offline-toolchain-1` (five files: `rustc.wasm.gz`, `wild.wasm.gz`,
+`sysroot.bundle`, `crates.bundle`, and their notices, `licenses.html`) and
+publishes everything to GitHub Pages. It runs on pushes to the
+`offline-playground` branch. Before the first run:
 
-1. Create the release `offline-toolchain-1` and upload the four files to it.
+1. Create the release `offline-toolchain-1` and upload the five files to it
+   (the playground's `web/dist`, after its `scripts/build-web.sh`).
 2. In the repository settings, under Pages, set the source to "GitHub
    Actions".
 
@@ -79,6 +81,14 @@ WebAssembly takes too long for a CI runner.
 ## Licenses
 
 The course is licensed under Apache 2.0 (code) and CC BY 4.0 (text); see the
-top-level `LICENSE` files. Mock Service Worker is MIT-licensed. The Rust
-compiler and wild are MIT/Apache 2.0. wasi-libc is under its own permissive
-licenses.
+top-level `LICENSE` files. The offline playground is Apache 2.0 too.
+
+The site sends third-party software to the browser, whose licenses ask that
+their notices go along with it, so the built site has
+`offline/licenses.html`: every package in Mock Service Worker's bundle, what
+mdBook puts in every page, and the course itself, with copyright lines and
+license texts. `add-to-book.sh` writes it with `licenses.mjs`. The toolchain's
+notices (rustc, wild, the standard library, the crates) come with the
+toolchain as `licenses.html`, written by the playground's
+`scripts/licenses.py`, and end up in `offline/dist/`. `licenses/` holds the
+texts for code we only have as built files (mdBook's libraries).
