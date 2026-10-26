@@ -1,9 +1,9 @@
-# Comprehensive Rust 🦀
+# Comprehensive Rust Offline 🦀
 
-> **This copy of the course runs its code examples in your browser** instead of
+> **This fork of the course runs its code examples in your browser** instead of
 > on play.rust-lang.org: rustc, the linker and your program all run as
-> WebAssembly on the page. See [`offline/README.md`](offline/README.md). It is
-> not an official Google project; the official course is at
+> WebAssembly on the page. See [`offline/README.md`](offline/README.md). This is
+> not an official Google project. The official course is at
 > https://github.com/google/comprehensive-rust.
 
 [![Build workflow](https://img.shields.io/github/actions/workflow/status/google/comprehensive-rust/build.yml?style=flat-square)](https://github.com/google/comprehensive-rust/actions/workflows/build.yml?query=branch%3Amain)
