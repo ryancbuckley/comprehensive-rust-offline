@@ -36,9 +36,11 @@ function withIsolation(res, destination) {
     return res;
   }
   const headers = new Headers(res.headers);
-  // `credentialless` rather than `require-corp`, so that cross-origin
-  // scripts the course loads (analytics, cookie consent) keep working.
-  headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+  // `require-corp`: Safari doesn't support `credentialless`, and without
+  // either the page isn't isolated. With it, cross-origin resources need a
+  // Cross-Origin-Resource-Policy header; the only ones the course loads, the
+  // shields.io badges, have one.
+  headers.set("Cross-Origin-Embedder-Policy", "require-corp");
   if (destination === "document" || destination === "iframe") {
     headers.set("Cross-Origin-Opener-Policy", "same-origin");
   }
