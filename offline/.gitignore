@@ -1,6 +1,7 @@
 # Downloaded toolchain (fetch-toolchain.sh), locally built tools, outputs
 /toolchain/
 /.tools/
+/.deploy/
 /test-output/
 /tests/native-crates/target/
 /tests/native-crates/Cargo.lock

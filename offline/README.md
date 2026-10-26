@@ -88,7 +88,22 @@ one language: its pages and the toolchain.
 
 ## Publishing
 
-`.github/workflows/publish.yml` builds the course and its translations, as
+Build the course locally (above), then publish `book/html` to the `gh-pages`
+branch:
+
+```sh
+offline/deploy.sh                    # to this checkout's origin
+```
+
+In the repository settings, under Pages, set the source to "Deploy from a
+branch", `gh-pages`, `/ (root)`. Each deploy replaces the branch with a
+single commit, so the repository doesn't collect every version of the site.
+The repository in `offline/.deploy` keeps the last deploy, so a push only
+sends the files that changed: a change to one page is a few kilobytes, not
+the whole site. The first deploy from a checkout fetches what the branch has
+first.
+
+Alternatively, `.github/workflows/publish.yml` builds the course and its translations, as
 upstream does. It then downloads the toolchain from this repository's release
 `offline-toolchain-1` (five files: `rustc.wasm.gz`, `wild.wasm.gz`,
 `sysroot.bundle`, `crates.bundle`, and their notices, `licenses.html`) and
