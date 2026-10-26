@@ -361,11 +361,20 @@ export class Kernel {
     proc.threads.add(t);
     proc.started++;
     this.trace?.(`[${proc.pid}:${t.tid}] start${startArg === null ? " main" : ` thread arg=${startArg}`}`);
-    t.worker.postMessage({ type: "start", tid: t.tid, startArg });
+    if (t.failed) {
+      // Its worker failed while the thread was prepared.
+      setTimeout(() => this.onThreadMessage(t, t.failed), 0);
+    } else {
+      t.worker.postMessage({ type: "start", tid: t.tid, startArg });
+    }
     return t.tid;
   }
 
   onThreadMessage(t, m) {
+    if (m.type === "failed" && t.tid === null) {
+      t.failed = m; // reported when the thread is started
+      return;
+    }
     if (!this.threads.has(t.tid)) return;
     this.trace?.(`[${t.proc.pid}:${t.tid}] ${m.type}${m.message ? `: ${m.message}` : ""}`);
     if (m.type === "exit") {
@@ -380,6 +389,10 @@ export class Kernel {
       // the panic message; the wasm stack is only interesting when tracing.
       const stack = this.trace && m.stack ? `${m.stack}\n` : "";
       t.proc.onStderr(encoder.encode(`error: the program trapped (${m.message})\n${stack}`));
+      this.exit(t.proc, 134);
+    } else if (m.type === "failed") {
+      // Without it, the process would wait for this thread forever.
+      t.proc.onStderr(encoder.encode(`error: a thread's worker stopped: ${m.message}\n`));
       this.exit(t.proc, 134);
     }
   }

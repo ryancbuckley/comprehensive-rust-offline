@@ -30,7 +30,16 @@ function createBrowserWorker() {
   const w = new Worker(new URL("./thread-worker.js", import.meta.url), { type: "module" });
   return {
     postMessage: (m) => w.postMessage(m),
-    onMessage: (f) => { w.onmessage = (e) => f(e.data); },
+    onMessage: (f) => {
+      w.onmessage = (e) => f(e.data);
+      // A worker that fails to load, or that the browser ends (iOS ends
+      // those that use too much memory), says so only here.
+      w.onerror = (e) => {
+        e.preventDefault();
+        f({ type: "failed", message: e.message || "the browser gave no reason" });
+      };
+      w.onmessageerror = () => f({ type: "failed", message: "a message to it could not be read" });
+    },
     terminate: () => w.terminate(),
   };
 }
@@ -125,6 +134,7 @@ const RUSTC_MAX_PAGES = (THRIFTY ? [768, 512] : [1024, 512]).map((mib) => mib * 
 const LINKER_MAX_PAGES = 256 * MIB;
 // Programs are linked to allow all 4 GiB a 32-bit program can address.
 const PROGRAM_MAX_PAGES = (THRIFTY ? [1024, 512, 256] : [4096, 2048, 1024, 512]).map((mib) => mib * MIB);
+const COMPILE_TIMEOUT_MS = 100000;
 
 let kernel, rustc;
 // rustc arguments that make the bundled crates available, and their names.
@@ -225,7 +235,15 @@ async function run({ id, source, opt, edition, tests, color, clippy, env, timeou
     stderr: out("compiler"),
   });
   running.set(id, compile);
+  // Within the page's own time limit (book.js waits 120 s), so that a
+  // compile that never finishes says so.
+  const compileTimer = setTimeout(() => {
+    postMessage({ type: "output", id, stream: "compiler",
+      text: `error: compiling took more than ${COMPILE_TIMEOUT_MS / 1000} s and was stopped\n` });
+    kernel.kill(compile);
+  }, COMPILE_TIMEOUT_MS);
   const code = await compile.exited;
+  clearTimeout(compileTimer);
   postMessage({ type: "done", id, stage: "compile", code, ms: performance.now() - t0 });
   const wasm = fs.readFile(`${dir}/main.wasm`);
   if (code !== 0 || !wasm || cancelled.has(id)) {
