@@ -194,6 +194,8 @@ export class Kernel {
     this.fs = fs;
     /** Called with a line of text for each system call and thread event. */
     this.trace = trace;
+    /** System calls made so far, by every process: a sign of progress. */
+    this.syscalls = 0;
     this.createWorker = createWorker;
     this.programs = programs;
     this.doorbell = new Int32Array(new SharedArrayBuffer(4));
@@ -421,6 +423,7 @@ export class Kernel {
   }
 
   dispatch(t) {
+    this.syscalls++;
     const name = SYSCALLS[t.ctl[1]];
     const handler = this[`sys_${name}`];
     let r;

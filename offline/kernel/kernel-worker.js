@@ -237,12 +237,20 @@ async function run({ id, source, opt, edition, tests, color, clippy, env, timeou
   running.set(id, compile);
   // Within the page's own time limit (book.js waits 120 s), so that a
   // compile that never finishes says so.
+  // A slow compile still makes system calls and grows its memory; a stuck one
+  // doesn't. The page logs the statuses.
+  const syscalls0 = kernel.syscalls;
+  const progress = () => `${((performance.now() - t0) / 1000).toFixed(0)} s, ` +
+    `${kernel.syscalls - syscalls0} system calls, ` +
+    `compiler memory ${Math.round(compile.memory.buffer.byteLength / 2 ** 20)} MiB`;
+  const ticker = setInterval(() => status(`Compiling… (${progress()})`), 10000);
   const compileTimer = setTimeout(() => {
     postMessage({ type: "output", id, stream: "compiler",
-      text: `error: compiling took more than ${COMPILE_TIMEOUT_MS / 1000} s and was stopped\n` });
+      text: `error: compiling took more than ${COMPILE_TIMEOUT_MS / 1000} s and was stopped (${progress()})\n` });
     kernel.kill(compile);
   }, COMPILE_TIMEOUT_MS);
   const code = await compile.exited;
+  clearInterval(ticker);
   clearTimeout(compileTimer);
   postMessage({ type: "done", id, stage: "compile", code, ms: performance.now() - t0 });
   const wasm = fs.readFile(`${dir}/main.wasm`);
