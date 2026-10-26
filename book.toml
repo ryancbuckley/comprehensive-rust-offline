@@ -70,7 +70,7 @@ additional-css = [
   "theme/css/language-picker.css",
   "theme/css/rtl.css",
 ]
-site-url = "/comprehensive-rust/"
+site-url = "/comprehensive-rust-offline/"
 git-repository-url = "https://github.com/google/comprehensive-rust"
 edit-url-template = "https://github.com/google/comprehensive-rust/edit/main/{path}"
 
