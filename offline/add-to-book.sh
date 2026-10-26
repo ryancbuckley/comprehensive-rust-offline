@@ -1,7 +1,9 @@
 #!/bin/sh
 # Add the offline playground to a built course: the service worker, Mock
-# Service Worker, the kernel scripts, the Rust toolchain, and the licenses of
-# all of it (offline/licenses.html, with the toolchain's in offline/dist/).
+# Service Worker, the kernel scripts, the Rust toolchain, the licenses of
+# all of it (offline/licenses.html, with the toolchain's in offline/dist/),
+# and "Using the course offline" (offline/index.html) with the list of files
+# it saves (offline/files.json).
 #
 #   offline/add-to-book.sh [book-html-dir] [toolchain-dir]
 #
@@ -31,4 +33,7 @@ for f in $FILES; do
   cp "$TOOLCHAIN/$f" "$BOOK/offline/dist/"
 done
 node "$OFFLINE/licenses.mjs" "$BOOK"
+cp "$OFFLINE/offline.html" "$BOOK/offline/index.html"
+# Last: it lists every file and stamps offline-sw.js with their version.
+node "$OFFLINE/manifest.mjs" "$BOOK"
 echo "Added the offline playground to $BOOK"

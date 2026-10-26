@@ -159,16 +159,31 @@
   }
 
   // Find the offline files, so that a normal build of the course keeps using
-  // play.rust-lang.org.
+  // play.rust-lang.org. (The service worker keeps files.json, so this works
+  // offline too.)
   async function findRoot() {
     for (const candidate of [path_to_root, path_to_root + "../"]) {
       const url = new URL(candidate, location.href);
-      const res = await fetch(new URL("offline-sw.js", url), { method: "HEAD" });
-      if (res.ok) {
+      const res = await fetch(new URL("offline/files.json", url), { method: "HEAD" }).catch(() => null);
+      if (res?.ok) {
         return url;
       }
     }
     return null;
+  }
+
+  /** Show the menu bar's link to "Using the course offline" (index.hbs). */
+  function showOfflineLink() {
+    const link = document.getElementById("offline-use");
+    if (link) {
+      const help = new URL("offline/", root);
+      const lang = document.documentElement.lang;
+      if (lang && lang !== "en") {
+        help.searchParams.set("lang", lang);
+      }
+      link.href = help.href;
+      link.hidden = false;
+    }
   }
 
   findRoot()
@@ -176,6 +191,7 @@
       if (found) {
         root = found;
         offline = new URL("offline/", root);
+        showOfflineLink();
         return main();
       }
     })

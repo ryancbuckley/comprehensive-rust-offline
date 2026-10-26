@@ -249,6 +249,11 @@
                             {{fa "solid" "print" "print-button"}}
                         </a>
                         {{/if}}
+                        {{! offline-playground.js shows this when the course has the offline files. }}
+                        <a id="offline-use" href="{{ path_to_root }}offline/" hidden
+                           title="Use this course offline" aria-label="Use this course offline">
+                            {{fa "solid" "download"}}
+                        </a>
                         {{#if git_repository_url}}
                         <a href="{{git_repository_url}}" title="Git repository" aria-label="Git repository">
                             {{fa git_repository_icon_class git_repository_icon}}
