@@ -18,6 +18,7 @@
 //   { type: "done", id, stage: "compile" | "run", code, ms, timedOut? }
 //   { type: "error", id?, text }
 
+import { createBrowserWorker } from "./browser-host.js";
 import { Kernel, OutOfMemoryError, importedMemory } from "./kernel.js";
 import { File } from "./fs.js";
 
@@ -25,24 +26,6 @@ const SYSROOT = "/sysroot";
 const TARGET = "wasm32-wasip1-threads";
 const SELF_CONTAINED = `${SYSROOT}/lib/rustlib/${TARGET}/lib/self-contained`;
 const CRATES = "/crates";
-
-function createBrowserWorker() {
-  const w = new Worker(new URL("./thread-worker.js", import.meta.url), { type: "module" });
-  return {
-    postMessage: (m) => w.postMessage(m),
-    onMessage: (f) => {
-      w.onmessage = (e) => f(e.data);
-      // A worker that fails to load, or that the browser ends (iOS ends
-      // those that use too much memory), says so only here.
-      w.onerror = (e) => {
-        e.preventDefault();
-        f({ type: "failed", message: e.message || "the browser gave no reason" });
-      };
-      w.onmessageerror = () => f({ type: "failed", message: "a message to it could not be read" });
-    },
-    terminate: () => w.terminate(),
-  };
-}
 
 const status = (text) => postMessage({ type: "status", text });
 

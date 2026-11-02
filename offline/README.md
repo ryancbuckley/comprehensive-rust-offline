@@ -60,6 +60,11 @@ The toolchain is about 80 MB of downloads.
 
 ## Building locally
 
+The kernel (`kernel.js`, `fs.js`, `thread-worker.js` and `browser-host.js` in
+`offline/kernel/`) is links to [browser-kernel](https://github.com/ryancbuckley/browser-kernel)'s files, which must be checked out
+beside this repository, as `../browser-kernel`. `add-to-book.sh` copies what they
+link to.
+
 ```sh
 offline/setup-tools.sh               # the course's mdbook tools, built with Bazel, in offline/.tools
 export PATH="$PWD/offline/.tools/bin:$PATH"
