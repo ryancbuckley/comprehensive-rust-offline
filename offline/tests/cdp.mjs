@@ -10,7 +10,11 @@ import process from "node:process";
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function launch() {
-  const chrome = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  // Chrome, or set CHROME (Chromium works too).
+  const chrome = process.env.CHROME ??
+    (process.platform === "darwin"
+      ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      : "google-chrome");
   const profile = mkdtempSync(join(tmpdir(), "course-chrome-"));
   const proc = spawn(chrome, [
     "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,

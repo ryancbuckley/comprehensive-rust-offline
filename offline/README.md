@@ -21,8 +21,10 @@ After the first visit it needs no network at all.
   - the wild linker, compiled to wasm;
   - the standard library for `wasm32-wasip1-threads`;
   - crates the examples use (tokio, futures, anyhow, thiserror, async-trait,
-    and others), built for the same target. Their proc macros are compiled
-    to WebAssembly too, and rustc runs them in an interpreter.
+    and others), built for the same target: a file per library, fetched the
+    first time a program uses its crate (`offline/kernel/crates.js`). Their
+    proc macros are compiled to WebAssembly too, and rustc runs them in an
+    interpreter.
 - Programs can use threads. The compiler needs them too: a page that uses
   `SharedArrayBuffer` must be *cross-origin isolated*. GitHub Pages cannot send
   the headers for that, so the service worker adds them, and the first visit
@@ -37,14 +39,14 @@ After the first visit it needs no network at all.
 - "Using the course offline" (`offline/offline.html`, published as
   `offline/index.html` and linked from the menu bar) saves the rest: every
   file listed in `offline/files.json`, which `offline/manifest.mjs` writes
-  with each file's size and hash, about 110 MB. It also explains Safari's
+  with each file's size and hash, about 125 MB. It also explains Safari's
   limits and how to download the course and serve it locally instead.
 - `manifest.mjs` stamps the service worker with a version made from the
   hashes. When a new version is published, the browser installs the new
   worker on the next visit. The worker copies the files that did not change
   from the old cache (the toolchain, usually) and deletes the old cache.
 
-The toolchain is about 80 MB of downloads.
+The toolchain is about 100 MB of downloads, 38 MB of it crates.
 
 ## What differs from play.rust-lang.org
 
@@ -71,7 +73,7 @@ export PATH="$PWD/offline/.tools/bin:$PATH"
 mdbook build                         # the English course, in book/html
 offline/build-translations.sh        # the languages in the menu, in book/html/<lang> (optional)
 (cd offline && npm ci)               # Mock Service Worker
-offline/fetch-toolchain.sh URL       # or put the files in offline/toolchain yourself
+node offline/import-toolchain.mjs ../browser_rust_playground   # or: offline/fetch-toolchain.sh URL
 offline/add-to-book.sh               # adds the playground to book/html
 offline/serve.sh                     # http://127.0.0.1:8001/
 ```
@@ -111,17 +113,22 @@ first.
 Alternatively, `.github/workflows/publish.yml` builds the course and its translations, as
 upstream does. It then downloads the toolchain from this repository's release
 `offline-toolchain-1` (five files: `rustc.wasm.gz`, `wild.wasm.gz`,
-`sysroot.bundle`, `crates.bundle`, and their notices, `licenses.html`) and
+`sysroot.bundle`, `crates.tar`, and their notices, `licenses.html`) and
 publishes everything to GitHub Pages. It runs on pushes to the
 `offline-playground` branch. Before the first run:
 
-1. Create the release `offline-toolchain-1` and upload the five files to it
-   (the playground's `web/dist`, after its `scripts/build-web.sh`).
+1. Create the release `offline-toolchain-1` and upload the five files to it:
+   those `import-toolchain.mjs` writes in `offline/toolchain`, with its
+   `crates/` directory as `crates.tar` (`tar cf crates.tar -C
+   offline/toolchain crates`).
 2. In the repository settings, under Pages, set the source to "GitHub
    Actions".
 
 The toolchain is built outside this repository, because building rustc for
-WebAssembly takes too long for a CI runner.
+WebAssembly takes too long for a CI runner: by the playground
+(browser_rust_playground), whose `web/dist` `import-toolchain.mjs` copies.
+Of the playground's crates it keeps the course's, those of
+`offline/tests/native-crates/Cargo.toml`, with what they depend on.
 
 ## Licenses
 
@@ -135,5 +142,6 @@ mdBook puts in every page, and the course itself, with copyright lines and
 license texts. `add-to-book.sh` writes it with `licenses.mjs`. The toolchain's
 notices (rustc, wild, the standard library, the crates) come with the
 toolchain as `licenses.html`, written by the playground's
-`scripts/licenses.py`, and end up in `offline/dist/`. `licenses/` holds the
+`scripts/licenses.py`, and end up in `offline/dist/`. They cover all of the
+playground's crates, more than the course has. `licenses/` holds the
 texts for code we only have as built files (mdBook's libraries).

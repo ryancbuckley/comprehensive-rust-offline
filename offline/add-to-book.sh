@@ -8,16 +8,16 @@
 #   offline/add-to-book.sh [book-html-dir] [toolchain-dir]
 #
 # book-html-dir defaults to book/html (what `mdbook build` writes);
-# toolchain-dir defaults to offline/toolchain (fetch-toolchain.sh). Run
-# `npm ci` in offline/ first.
+# toolchain-dir defaults to offline/toolchain (import-toolchain.mjs or
+# fetch-toolchain.sh). Run `npm ci` in offline/ first.
 set -eu
 OFFLINE=$(cd "$(dirname "$0")" && pwd)
 BOOK=${1:-$OFFLINE/../book/html}
 TOOLCHAIN=${2:-$OFFLINE/toolchain}
-FILES="rustc.wasm.gz wild.wasm.gz sysroot.bundle crates.bundle licenses.html"
+FILES="rustc.wasm.gz wild.wasm.gz sysroot.bundle licenses.html crates/index.json"
 
 for f in $FILES; do
-  test -f "$TOOLCHAIN/$f" || { echo "missing $TOOLCHAIN/$f (run offline/fetch-toolchain.sh)" >&2; exit 1; }
+  test -f "$TOOLCHAIN/$f" || { echo "missing $TOOLCHAIN/$f (run offline/import-toolchain.mjs)" >&2; exit 1; }
 done
 test -f "$OFFLINE/node_modules/msw/lib/mockServiceWorker.js" \
   || { echo "run npm ci in $OFFLINE first" >&2; exit 1; }
@@ -29,9 +29,13 @@ cp "$OFFLINE/sw.js" "$BOOK/offline-sw.js"
 cp "$OFFLINE/node_modules/msw/lib/mockServiceWorker.js" "$BOOK/"
 cp "$OFFLINE/node_modules/msw/lib/iife/index.js" "$BOOK/offline/msw.js"
 cp "$OFFLINE"/kernel/*.js "$BOOK/offline/kernel/"
-for f in $FILES; do
+# The crates are a file per library (crates/index.json lists them); the
+# bundle is from toolchains before them.
+rm -rf "$BOOK/offline/dist/crates" "$BOOK/offline/dist/crates.bundle"
+for f in rustc.wasm.gz wild.wasm.gz sysroot.bundle licenses.html; do
   cp "$TOOLCHAIN/$f" "$BOOK/offline/dist/"
 done
+cp -R "$TOOLCHAIN/crates" "$BOOK/offline/dist/"
 node "$OFFLINE/licenses.mjs" "$BOOK"
 cp "$OFFLINE/offline.html" "$BOOK/offline/index.html"
 # Last: it lists every file and stamps offline-sw.js with their version.
