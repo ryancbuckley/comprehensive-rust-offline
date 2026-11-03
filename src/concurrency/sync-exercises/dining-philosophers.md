@@ -20,13 +20,12 @@ The dining philosophers problem is a classic problem in concurrency:
 > eating. After an individual philosopher finishes eating, they will put down
 > both chopsticks.
 
-You will need a local [Cargo installation](../../cargo/running-locally.md) for
-this exercise. Copy the code below to a file called `src/main.rs`, fill out the
-blanks, and test that `cargo run` does not deadlock:
+Fill out the blanks in the code below, then run it and check that it does not
+deadlock:
 
 <!-- File src/main.rs -->
 
-```rust,compile_fail
+```rust,editable,compile_fail
 # // Copyright 2024 Google LLC
 # // SPDX-License-Identifier: Apache-2.0
 #
@@ -49,17 +48,6 @@ blanks, and test that `cargo run` does not deadlock:
 
     // Output their thoughts
 }
-```
-
-You can use the following `Cargo.toml`:
-
-<!-- File Cargo.toml -->
-
-```toml
-[package]
-name = "dining-philosophers"
-version = "0.1.0"
-edition = "2024"
 ```
 
 <details>
