@@ -12,14 +12,12 @@ SPDX-License-Identifier: CC-BY-4.0
 See [dining philosophers](../sync-exercises/dining-philosophers.md) for a
 description of the problem.
 
-As before, you will need a local
-[Cargo installation](../../cargo/running-locally.md) for this exercise. Copy the
-code below to a file called `src/main.rs`, fill out the blanks, and test that
-`cargo run` does not deadlock:
+As before, fill out the blanks in the code below, then run it and check that it
+does not deadlock:
 
 <!-- File src/main.rs -->
 
-```rust,compile_fail
+```rust,editable,compile_fail
 # // Copyright 2024 Google LLC
 # // SPDX-License-Identifier: Apache-2.0
 #
@@ -44,23 +42,8 @@ code below to a file called `src/main.rs`, fill out the blanks, and test that
 }
 ```
 
-Since this time you are using Async Rust, you'll need a `tokio` dependency. You
-can use the following `Cargo.toml`:
-
-<!-- File Cargo.toml -->
-
-```toml
-[package]
-name = "dining-philosophers-async-dine"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-tokio = { version = "1.26.0", features = ["sync", "time", "macros", "rt-multi-thread"] }
-```
-
-Also note that this time you have to use the `Mutex` and the `mpsc` module from
-the `tokio` crate.
+Since this time you are using Async Rust, note that you have to use the `Mutex`
+and the `mpsc` module from the `tokio` crate.
 
 <details>
 
